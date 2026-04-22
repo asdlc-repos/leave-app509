@@ -1,0 +1,15 @@
+apiVersion: openchoreo.dev/v1alpha1
+metadata:
+  name: leave-web
+spec:
+  autoBuild: true
+  autoDeploy: true
+endpoints:
+  - name: http
+    port: 8080
+    type: HTTP
+    basePath: /
+    visibility:
+      - external
+dependencies:
+  - leave-api
