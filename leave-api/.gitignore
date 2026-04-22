@@ -1,0 +1,26 @@
+# Build output
+/leave-api
+/out/
+/bin/
+/dist/
+
+# Env / secrets
+.env
+.env.*
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Test / coverage
+*.test
+coverage.out
+*.out
+
+# Logs
+*.log
+.logs/
+
+# MCP config
+.mcp-config.json
