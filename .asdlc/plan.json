@@ -1,0 +1,94 @@
+{
+  "strategy": "Bottom-Up",
+  "overview": "Topological sort yields two phases: the leave-api has no dependencies and must be built first, while leave-web and notification-dispatcher both depend on it and can be built in parallel in phase 2.",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Foundation API",
+      "description": "Build the core backend service that all other components depend on.",
+      "components": [
+        {
+          "name": "leave-api",
+          "componentType": "service",
+          "language": "Go",
+          "deployment": "Docker",
+          "responsibilities": [
+            "Authenticate users with JWT and enforce role-based access control",
+            "Manage leave request lifecycle (create, cancel, approve, reject) with balance, notice, blackout, and overlap validation",
+            "Maintain leave types, balances, blackouts, and HR balance adjustments with audit notes",
+            "Serve calendar, manager queue, reports (JSON/CSV/PDF), and immutable audit trails",
+            "Queue email notifications and expose pending/mark-sent endpoints for the dispatcher"
+          ],
+          "architectureContext": "Central backend REST API consumed by the leave-web SPA (user traffic) and polled by notification-dispatcher for pending emails. Owns all domain state in in-memory stores.",
+          "keyConsiderations": [
+            "Use sync.RWMutex around in-memory maps to safely handle 500 concurrent users",
+            "Reserve balance on submission and release on rejection/cancellation to prevent race conditions",
+            "Enforce 5MB attachment cap and PDF/JPG/PNG mime validation for base64 uploads",
+            "Implement sliding 30-min JWT expiry and CORS for SPA access",
+            "Generate 3-day reminder notifications idempotently to avoid duplicates"
+          ],
+          "apiContract": "openapi: 3.0.3\ninfo:\n  title: Leave API\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      responses:\n        '200': { description: OK }\n  /auth/login:\n    post:\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              properties:\n                email: { type: string }\n                password: { type: string }\n      responses:\n        '200': { description: JWT token }\n  /auth/logout:\n    post:\n      responses: { '204': { description: OK } }\n  /auth/me:\n    get:\n      responses: { '200': { description: current user } }\n  /users:\n    get:\n      responses: { '200': { description: list users } }\n  /users/{id}/balances:\n    get:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: balances } }\n  /users/{id}/balances/adjust:\n    post:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: adjusted } }\n  /leave-types:\n    get:\n      responses: { '200': { description: list } }\n    post:\n      responses: { '201': { description: created } }\n  /leave-types/{id}:\n    put:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: updated } }\n  /leave-requests:\n    get:\n      responses: { '200': { description: list } }\n    post:\n      responses: { '201': { description: created } }\n  /leave-requests/{id}:\n    get:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: detail } }\n  /leave-requests/{id}/cancel:\n    post:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: cancelled } }\n  /leave-requests/{id}/approve:\n    post:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: approved } }\n  /leave-requests/{id}/reject:\n    post:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: rejected } }\n  /leave-requests/{id}/attachments:\n    post:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '201': { description: uploaded } }\n  /calendar:\n    get:\n      responses: { '200': { description: calendar events } }\n  /manager/queue:\n    get:\n      responses: { '200': { description: pending requests } }\n  /manager/team-calendar:\n    get:\n      responses: { '200': { description: team events } }\n  /policies/blackouts:\n    get: { responses: { '200': { description: list } } }\n    post: { responses: { '201': { description: created } } }\n  /reports/utilization:\n    get:\n      responses: { '200': { description: report (json/csv/pdf via ?format=) } }\n  /audit/{employeeId}:\n    get:\n      parameters: [{ name: employeeId, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: audit trail } }\n  /notifications/pending:\n    get:\n      responses: { '200': { description: pending email notifications } }\n  /notifications/{id}/mark-sent:\n    post:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '204': { description: OK } }\n  /notifications/inapp:\n    get:\n      responses: { '200': { description: in-app notifications } }\n",
+          "dependencies": []
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Frontend and Notification Worker",
+      "description": "Build the user-facing SPA and the scheduled dispatcher in parallel, both consuming the leave-api.",
+      "components": [
+        {
+          "name": "leave-web",
+          "componentType": "web-app",
+          "language": "TypeScript / React",
+          "deployment": "Docker",
+          "responsibilities": [
+            "Provide login and role-aware dashboards for Employee, Manager, and HR Admin",
+            "Enable leave request creation, cancellation, and file attachment workflows",
+            "Render team/company calendars with filters, capacity %, and highlights",
+            "Support HR administration: leave types, blackouts, balance adjustments, and CSV/PDF report export",
+            "Display in-app notifications and enforce 30-min idle auto-logout"
+          ],
+          "architectureContext": "React SPA served by nginx, consuming leave-api via REST/JSON. Sole user-facing entrypoint.",
+          "keyConsiderations": [
+            "Store JWT in memory (not localStorage) and refresh expiry on user activity",
+            "Resolve API base URL from window.configs or VITE_API_URL at runtime",
+            "Serve on port 8080 via nginx with a /health endpoint",
+            "Ensure \u003c2s page loads via code-splitting and memoized calendar rendering",
+            "Handle file uploads up to 5MB with client-side mime validation"
+          ],
+          "apiContract": "openapi: 3.0.3\ninfo:\n  title: Leave Web\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      responses:\n        '200': { description: OK }\n",
+          "dependencies": [
+            "leave-api"
+          ]
+        },
+        {
+          "name": "notification-dispatcher",
+          "componentType": "scheduled-task",
+          "language": "Go",
+          "deployment": "Docker",
+          "responsibilities": [
+            "Poll leave-api for pending email notifications every 5 minutes",
+            "Dispatch emails via SMTP or log simulation when SMTP_HOST unset",
+            "Mark notifications as sent via the leave-api callback",
+            "Expose a /health endpoint for liveness before running the job"
+          ],
+          "architectureContext": "Scheduled Go task authenticating with leave-api via SERVICE_TOKEN; consumes /notifications/pending and POSTs /notifications/{id}/mark-sent. No inbound callers besides health checks.",
+          "keyConsiderations": [
+            "Run once per invocation then exit cleanly for cronjob semantics",
+            "Idempotent mark-sent to avoid duplicate email sends on retry",
+            "Read LEAVE_API_URL, SERVICE_TOKEN, SMTP_HOST from env",
+            "Expose /health on port 9090 before running the job",
+            "Handle network failures gracefully with per-notification error isolation"
+          ],
+          "apiContract": "openapi: 3.0.3\ninfo:\n  title: Notification Dispatcher\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      responses:\n        '200': { description: OK }\n",
+          "dependencies": [
+            "leave-api"
+          ]
+        }
+      ]
+    }
+  ],
+  "sourceSpec": "spec-v1",
+  "sourceDesign": "design-v1"
+}
