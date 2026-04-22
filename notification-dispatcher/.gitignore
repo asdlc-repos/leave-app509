@@ -1,0 +1,9 @@
+/dispatcher
+/out/
+*.log
+*.exe
+.env
+.env.*
+.idea/
+.vscode/
+.DS_Store
