@@ -1,0 +1,57 @@
+{
+  "overview": "A minimal three-component leave management system: a Go backend API handling authentication, leave workflows, balances, policies, and audit; a React web frontend for employees, managers, and HR admins; and a scheduled task that dispatches email notifications and reminders. The web app communicates with the backend over REST/JSON, while the scheduled task polls the backend to send pending notifications.",
+  "requirements": [
+    "Users authenticate via email/password with JWT sessions and 30-min inactivity timeout",
+    "Role-based access control for Employee, Manager, HR Admin roles",
+    "Employees can create, cancel, and attach documents to leave requests",
+    "System validates balance, detects overlapping approved leaves, and enforces minimum notice and blackout periods",
+    "Managers can approve/reject requests with mandatory rejection comments and view a 90-day team calendar",
+    "HR Admins configure leave types, entitlements, carryover, blackout periods, and adjust balances with audit notes",
+    "Leave balances tracked per type per employee with pending/approved visibility",
+    "Company-wide calendar filterable by department/team/employee with capacity %",
+    "CSV/PDF report export by HR Admins",
+    "Email notifications for submissions, approvals, rejections, cancellations, and 3-day reminders within 5 minutes",
+    "Immutable audit log of all leave transactions retained ≥7 years",
+    "Support 500 concurrent users with \u003c2s page loads"
+  ],
+  "components": [
+    {
+      "name": "leave-api",
+      "componentType": "service",
+      "language": "Go",
+      "dependsOn": [],
+      "entrypoint": "deployment/service",
+      "buildpack": "docker",
+      "appPath": "/leave-api",
+      "openAPISpec": "openapi: 3.0.3\ninfo:\n  title: Leave API\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      responses:\n        '200': { description: OK }\n  /auth/login:\n    post:\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              properties:\n                email: { type: string }\n                password: { type: string }\n      responses:\n        '200': { description: JWT token }\n  /auth/logout:\n    post:\n      responses: { '204': { description: OK } }\n  /auth/me:\n    get:\n      responses: { '200': { description: current user } }\n  /users:\n    get:\n      responses: { '200': { description: list users } }\n  /users/{id}/balances:\n    get:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: balances } }\n  /users/{id}/balances/adjust:\n    post:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: adjusted } }\n  /leave-types:\n    get:\n      responses: { '200': { description: list } }\n    post:\n      responses: { '201': { description: created } }\n  /leave-types/{id}:\n    put:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: updated } }\n  /leave-requests:\n    get:\n      responses: { '200': { description: list } }\n    post:\n      responses: { '201': { description: created } }\n  /leave-requests/{id}:\n    get:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: detail } }\n  /leave-requests/{id}/cancel:\n    post:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: cancelled } }\n  /leave-requests/{id}/approve:\n    post:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: approved } }\n  /leave-requests/{id}/reject:\n    post:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: rejected } }\n  /leave-requests/{id}/attachments:\n    post:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '201': { description: uploaded } }\n  /calendar:\n    get:\n      responses: { '200': { description: calendar events } }\n  /manager/queue:\n    get:\n      responses: { '200': { description: pending requests } }\n  /manager/team-calendar:\n    get:\n      responses: { '200': { description: team events } }\n  /policies/blackouts:\n    get: { responses: { '200': { description: list } } }\n    post: { responses: { '201': { description: created } } }\n  /reports/utilization:\n    get:\n      responses: { '200': { description: report (json/csv/pdf via ?format=) } }\n  /audit/{employeeId}:\n    get:\n      parameters: [{ name: employeeId, in: path, required: true, schema: { type: string } }]\n      responses: { '200': { description: audit trail } }\n  /notifications/pending:\n    get:\n      responses: { '200': { description: pending email notifications } }\n  /notifications/{id}/mark-sent:\n    post:\n      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]\n      responses: { '204': { description: OK } }\n  /notifications/inapp:\n    get:\n      responses: { '200': { description: in-app notifications } }\n",
+      "componentAgentInstructions": "Build a Go backend using net/http on port 9090. Use in-memory storage (maps + sync.RWMutex) seeded with demo users (employee, manager, hr roles), leave types (annual=20, sick=10, personal=5), and a few sample requests. Implement JWT-based auth (HS256, 30-min expiry sliding). Middleware enforces role-based access. Implement leave request lifecycle: create (validate balance, notice period, blackout, overlap with approved), cancel (only if pending), approve (deduct balance, create audit + notification rows), reject (require comment, release reserved balance). Track reserved balance on submit. Maintain immutable audit log appended per transaction. Support attachments as base64 stored in memory with 5MB cap and PDF/JPG/PNG mime check. Calendar endpoints return approved leave with user/team filters and per-day capacity %. Reports endpoint supports format=json|csv|pdf (use simple text PDF generation or gofpdf). Notification table stores queued emails; /notifications/pending returns unsent, /mark-sent marks dispatched. Also generate reminders for leave starting within 3 days. Enable CORS for all origins. Provide /health returning 200."
+    },
+    {
+      "name": "leave-web",
+      "componentType": "web-app",
+      "language": "TypeScript / React",
+      "dependsOn": [
+        "leave-api"
+      ],
+      "entrypoint": "deployment/web-application",
+      "buildpack": "docker",
+      "appPath": "/leave-web",
+      "openAPISpec": "openapi: 3.0.3\ninfo:\n  title: Leave Web\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      responses:\n        '200': { description: OK }\n",
+      "componentAgentInstructions": "Build a React + TypeScript SPA using Vite, served by nginx on port 8080. Read API base URL from window.configs or VITE_API_URL. Pages: Login, Employee Dashboard (balances, my requests, create request modal with file attachment), Manager Queue (approve/reject with comment), Team Calendar (90-day), Company Calendar (filter by dept/team/employee, highlight today/weekends/holidays, per-day capacity), HR Admin (leave types CRUD, blackouts, balance adjust with audit note, reports with CSV/PDF export buttons), Audit viewer, In-app notification bell with unread badge. Use JWT stored in memory + refresh on activity; auto-logout after 30 min idle. Expose a /health endpoint via nginx returning 200."
+    },
+    {
+      "name": "notification-dispatcher",
+      "componentType": "scheduled-task",
+      "language": "Go",
+      "dependsOn": [
+        "leave-api"
+      ],
+      "entrypoint": "cronjob/scheduled-task",
+      "buildpack": "docker",
+      "appPath": "/notification-dispatcher",
+      "openAPISpec": "openapi: 3.0.3\ninfo:\n  title: Notification Dispatcher\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      responses:\n        '200': { description: OK }\n",
+      "componentAgentInstructions": "Go scheduled task that runs every 5 minutes. Calls leave-api GET /notifications/pending using a service token (env SERVICE_TOKEN), iterates queued email notifications (submission, approval, rejection, cancellation, 3-day reminder), logs the email send (simulated SMTP or log-only if SMTP_HOST unset), then POSTs /notifications/{id}/mark-sent. On startup expose a tiny HTTP server on port 9090 with /health for liveness before running the job once and exiting. API base URL from env LEAVE_API_URL."
+    }
+  ],
+  "sourceSpec": "spec-v1"
+}
